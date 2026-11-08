@@ -51,3 +51,68 @@
 #### Примеры
 
 `list_tables`
+
+## Управление данными
+
+### insert
+
+`insert into <имя_таблицы> values (<значение1>, <значение2>, ...)`
+Вставить строку в таблицу.
+
+#### Примеры
+
+`insert into tab1 values (5 "qwerty" true)`
+
+### select
+
+`select from <имя_таблицы>`
+Вывести все строки таблицы.
+
+`select from <имя_таблицы> where <столбец> = <значение>`
+Вывести строки таблицы, удовлетворяющие условию.
+
+#### Примеры
+
+`select from tab1`
+
+`select from tab1 where col1 = 5`
+
+`select from tab1 where col2 = "qwerty"`
+
+`select from tab1 where col3 = false`
+
+### update
+
+` update <имя_таблицы> set <столбец1> = <новое_значение1> where <столбец_условия> = <значение_условия>`
+Установить новое значение указанного столбца во всех строках, удовлетворяющих условию.
+
+#### Примеры
+
+`update tab1 set col1=6 where col1 = 5`
+
+`update tab1 set col3 = true where col2 = "qwerty"`
+
+`update tab1 set col2="" where col3 = false`
+
+### delete
+
+`delete from <имя_таблицы> where <столбец> = <значение>`
+Удалить все строки, удовлетворяющие условию.
+
+#### Примеры
+
+`delete from tab1 where col1 = 5`
+
+`delete from tab1 where col2 = "qwerty"`
+
+`delete from tab1 where col3 = false`
+
+### info
+
+`info <имя_таблицы>`
+Вывести информацию о таблице.
+
+#### Примеры
+
+`info tab1`
+
