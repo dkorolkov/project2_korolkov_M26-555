@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 
+from .engine import run, welcome
+from .utils import init_meta
+
+
 def main():
-    print("DB project is running!" )
+    init_meta()
+    welcome()
+    run()
     
 if __name__ == '__main__':
     main()
