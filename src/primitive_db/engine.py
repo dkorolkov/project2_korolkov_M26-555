@@ -1,7 +1,10 @@
+import json
 import shlex
 from collections.abc import Callable
 
 import prompt
+
+from decorators import create_cacher
 
 from .core import (
     create_table_handler,
@@ -27,38 +30,23 @@ def run():
         try:
             command, command_data, handler = parse(command_string)
         except KeyError:
-            print(f"Неизвестная команда {command}")
+            print(f"Неизвестная команда {command_string}")
             continue
         except (TypeError, ValueError) as exc:
-            fields = parse_exceprion(str(exc))
-            if fields is None:
-                # Выбрасываем необработанное исключение
-                raise
+            print(f"Ошибка при чтении команды {command_string}: {exc!s}")
             continue
 
         if command == 'exit':
             break
 
         try:
-            result = handler(**command_data)
+            #result = handler(**command_data)
+            result = cache_manager(command, command_data, handler)
             if result is not None:
                 print(result)
-        except (KeyError, TypeError, ValueError) as exc:
-            fields = parse_exceprion(str(exc))
-            print(f"Ошибка при выполнении команды {command}: {fields.get('error', '')}")
-
-def parse_exceprion(message: str) -> dict:
-    top = message.split('\n')[0]
-    fields = {}
-    for item in top.split(';'):
-        try:
-            key, val = item.split(':', 1)
-            fields[key] = val
-        except ValueError:
-            return None
-        
-    return fields
-    
+        except (KeyError, TypeError, ValueError, OSError,
+            UnicodeDecodeError, json.JSONDecodeError) as exc:
+            print(f"Ошибка при выполнении команды {command}: {exc!s}")
 
 def print_help():
     """Prints the help message for the current mode."""
@@ -83,7 +71,7 @@ def parse(command_string: str) -> (str, dict, Callable):
     tokens = list(tokens)
     command = tokens[0]
     if command not in command_handlers:
-        raise KeyError(f"level:commands;error:Неизвестная команда {command}")
+        raise KeyError(f"error:Неизвестная команда {command}")
 
     parser, handler = command_handlers[command][:2]
     if parser is None:
@@ -93,7 +81,7 @@ def parse(command_string: str) -> (str, dict, Callable):
         return parser(tokens) + (handler,)
     except ValueError as exc:
         raise ValueError(
-        f"level:commands;command:{command};error:Неверный формат команды {command}: {exc!s}")
+        f";error:Неверный формат команды {command}: {exc!s}")
         
 keywords = {"create_table", "drop_table", "list_tables",
             "select", "insert", "update", "delete",
@@ -322,6 +310,29 @@ def info_parser(tokens: list) -> dict:
     return command, {
         "table_name": table_name.lower(),
     }
+
+cachers = {}
+cache_reset_commands = {"insert", "update", "delete", "drop_table"}
+def select_table_closure(table_name, handler):
+    def value_func(where_clause):
+        return handler(table_name, where_clause)
+
+    return value_func
+
+def cache_manager(command, command_data, handler):
+    if command == "select":
+        table_name = command_data["table_name"]
+        if table_name not in cachers:
+            cachers[table_name] = create_cacher()
+
+        return cachers[table_name](command_data.get("where_clause", None),
+                        select_table_closure(table_name, handler)
+               )
+    elif command in cache_reset_commands:
+        table_name = command_data["table_name"]
+        del cachers[table_name]
+
+    return handler(**command_data)
 
 # Словарь команд.
 # Ключ -- имя команды

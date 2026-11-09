@@ -2,31 +2,47 @@ import json
 import os
 import os.path
 
+from decorators import handle_db_errors
+
 TABLES_IN_META = "tables"
 
 # Чтение и запись json
+
+@handle_db_errors
 def load_json(filepath):
     try:
         with open(filepath) as f:
             return json.load(f)
     except OSError as exc:
-        message = f"level:file;operation:read;path:{filepath};error:{exc.strerror}"
+        message = f"{filepath=}"
         raise OSError(exc.errno, message)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        message = f"level:json;operation:load;error:{exc}"
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        message = f"{filepath=}"
         raise ValueError(message)
+load_json.__wrapped__.exceptions = {
+    OSError: "Ошибка чтения файла {filepath}",
+    UnicodeDecodeError: "Ошибка чтения json из файла {filepath}",
+    json.JSONDecodeError: "Ошибка чтения json из файла {filepath}",
+}
     
+@handle_db_errors
 def dump_json(filepath, data):
     try:
         with open(filepath, 'w') as f:
             json.dump(data, f)
             return True
     except OSError as exc:
-        message = f"level:file;operation:write;path:{filepath};error:{exc.strerror}"
+        message = f"{filepath=}"
         raise OSError(exc.errno, message)
-    except (TypeError, ValueError) as exc:
-        message = f"level:json;operation:dump;error:{exc}"
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        message = f"{filepath=}"
         raise ValueError(message)
+dump_json.__wrapped__.exceptions = {
+    OSError: "Ошибка записи файла {filepath}",
+    FileNotFoundError: "Ошибка записи файла {filepath}",
+    UnicodeDecodeError: "Ошибка записи json в файл {filepath}",
+    json.JSONDecodeError: "Ошибка записи json в файл {filepath}",
+}
 
 load_metadata = load_json
 save_metadata = dump_json
@@ -46,13 +62,16 @@ def read_meta() -> dict:
 def write_meta(meta: dict):
     save_metadata(META_PATH, meta)
     
+@handle_db_errors
 def load_meta_for_table(table_name: str) -> dict:
     meta = read_meta()
     try:
         return meta[TABLES_IN_META][table_name]
     except KeyError:
-        raise KeyError(f"level:sql;error:Таблица {table_name} не найдена")
-
+        raise KeyError(f"{table_name=}")
+load_meta_for_table.__wrapped__.exceptions = {
+    KeyError: "Таблица {table_name} не найдена"
+}
 # Чтение и запись содержимого таблиц
 def make_table_path(table_name: str) -> str:
     return os.path.join(DATA_DIR, f"{table_name}.json")

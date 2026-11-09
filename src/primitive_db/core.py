@@ -2,6 +2,8 @@ from operator import eq, ge, gt, le, lt, ne
 
 from prettytable import PrettyTable
 
+from decorators import confirm_action, handle_db_errors, log_time
+
 from .utils import (
     TABLES_IN_META,
     delete_table,
@@ -17,21 +19,21 @@ def _read_meta(command):
     try:
         return read_meta()
     except OSError as exc:
-        message = f"level:sql;operation:{command};error:Не удалось получить метаданные"
-        raise OSError(exc.errno, f"message\n{exc.strerror}")
-    except (TypeError, ValueError) as exc:
-        message = f"level:sql;operation:{command};error:Не удалось получить метаданные"
-        raise ValueError(f"{message}\n{exc!s}")
+        message = "Не удалось получить метаданные"
+        raise OSError(exc.errno, message)
+    except (TypeError, ValueError):
+        message = "Не удалось получить метаданные"
+        raise ValueError(message)
 
 def _write_meta(command, meta):
     try:
         write_meta(meta)
     except OSError as exc:
-        message = f"level:sql;operation:{command};error:Не удалось получить метаданные"
-        raise OSError(exc.errno, f"message\n{exc.strerror}")
-    except (TypeError, ValueError) as exc:
-        message = f"level:sql;operation:{command};error:Не удалось получить метаданные"
-        raise ValueError(f"{message}\n{exc!s}")
+        message = "Не удалось получить метаданные"
+        raise OSError(exc.errno, message)
+    except (TypeError, ValueError):
+        message = "Не удалось получить метаданные"
+        raise ValueError(message)
 
 COLUMN_TYPES = {
     'int': int,
@@ -46,6 +48,7 @@ COLUMNS_IN_META = "columns"
 
 # Управление таблицами
 
+@handle_db_errors
 def create_table(metadata: dict, table_name: str, columns: list) -> dict:
     # Проверить наличие столбца id
     id_idx = None
@@ -55,9 +58,7 @@ def create_table(metadata: dict, table_name: str, columns: list) -> dict:
             break
         else:
             if col_type not in COLUMN_TYPES:
-                raise TypeError(
-                    "level:sql;command:create_table;" +\
-                    f"error:Недопустимый тип {col_type} в столбце {col_name}")
+                raise TypeError(f"{col_type=};{col_name=}")
 
     # Удалить столбец id, если есть
     if id_idx is not None:
@@ -67,8 +68,7 @@ def create_table(metadata: dict, table_name: str, columns: list) -> dict:
     columns.insert(0, (ID_COLUNM_NAME, ID_COLUNM_TYPE))
     
     if table_name in metadata[TABLES_IN_META]:
-        raise KeyError("level:sql;command:create_table;" +\
-                       f"error:Таблица {table_name} уже существует")
+        raise KeyError(f"{table_name=}")
     table = {
         TABLE_NAME_IN_META: table_name,
         COLUMNS_IN_META: columns,
@@ -78,28 +78,34 @@ def create_table(metadata: dict, table_name: str, columns: list) -> dict:
     
     return metadata
 
+create_table.__wrapped__.exceptions = {
+    TypeError: "Недопустимый тип {col_type} в столбце {col_name}",
+    KeyError: "Таблица {table_name} уже существует"
+}
+
+@confirm_action("Удаление таблицы")
 def drop_table(metadata: dict, table_name: str) -> dict:
     if table_name in metadata[TABLES_IN_META]:
         del metadata[TABLES_IN_META][table_name]
     else:
-        raise KeyError("level:sql;command:drop_table;" +\
-                       f"error:Таблица {table_name} не найдена")
+        raise KeyError(f"Таблица {table_name} не найдена")
 
     return metadata
     
 # Работа с данными
 
+@log_time
 def insert(table_data: list, table_name: str, values: list):
     table_meta = load_meta_for_table(table_name)
     columns = table_meta[COLUMNS_IN_META][1:]
     if len(values) != len(columns):
-        raise ValueError("error:Количество входных данных не соответствует " +\
+        raise ValueError("Количество входных данных не соответствует " +\
         "количеству столбцов в таблице")
     
     #col_dict = dict(columns)
     for (col_name, col_type), value in zip(columns, values):
         if not isinstance(value, COLUMN_TYPES[col_type]):
-            raise TypeError(f"error:Элемент данных {value}" +\
+            raise TypeError(f"Элемент данных {value}" +\
             f" не соответствует типу столбца {col_name}, ожидается {col_type}")
             
     new_id = max((row[ID_COLUNM_NAME] for row in table_data), default=0) + 1
@@ -122,10 +128,11 @@ def predicat(val1, cmp_op, val2):
     }
     
     if not cmp_op in ops:
-        raise ValueError(f"error:Недопустимая операция сравнения: {cmp_op}")
+        raise ValueError(f"Недопустимая операция сравнения: {cmp_op}")
     
     return ops[cmp_op](val1, val2)
     
+@log_time
 def select(table_data: list, table_name: str, where_clause=None) -> list:
     table_meta = load_meta_for_table(table_name)
     columns = table_meta[COLUMNS_IN_META]
@@ -136,7 +143,7 @@ def select(table_data: list, table_name: str, where_clause=None) -> list:
     col_dict = dict(columns)
     col_type = col_dict[col_name]
     if not isinstance(value, COLUMN_TYPES[col_type]):
-        raise TypeError(f"error:Элемент данных {value}" +\
+        raise TypeError(f"Элемент данных {value}" +\
         f" не соответствует типу столбца {col_name}, ожидается {col_type}")
 
     filtered_data = []
@@ -146,10 +153,11 @@ def select(table_data: list, table_name: str, where_clause=None) -> list:
                 filtered_data.append(row)
         except KeyError:
             raise KeyError(
-            f"error:Столбца {col_name} нет в таблице {table_name}")
+            f"Столбца {col_name} нет в таблице {table_name}")
         
     return filtered_data
     
+@confirm_action("Удаление строк")
 def delete(table_data: list, table_name: str, where_clause: tuple) -> list:
     table_meta = load_meta_for_table(table_name)
     columns = table_meta[COLUMNS_IN_META]
@@ -160,7 +168,7 @@ def delete(table_data: list, table_name: str, where_clause: tuple) -> list:
     col_dict = dict(columns)
     col_type = col_dict[col_name]
     if not isinstance(value, COLUMN_TYPES[col_type]):
-        raise TypeError(f"error:Элемент данных {value}" +\
+        raise TypeError(f"Элемент данных {value}" +\
         f" не соответствует типу столбца {col_name}, ожидается {col_type}")
 
     filtered_data = []
@@ -170,10 +178,11 @@ def delete(table_data: list, table_name: str, where_clause: tuple) -> list:
                 filtered_data.append(row)
         except KeyError:
             raise KeyError(
-            f"error:Столбца {col_name} нет в таблице {table_name}")
+            f"Столбца {col_name} нет в таблице {table_name}")
         
     return filtered_data
     
+@log_time
 def update(table_data: list, table_name: str, set_clause: tuple, where_clause: tuple) -> list:
     table_meta = load_meta_for_table(table_name)
     columns = table_meta[COLUMNS_IN_META]
@@ -184,12 +193,12 @@ def update(table_data: list, table_name: str, set_clause: tuple, where_clause: t
     col_dict = dict(columns)
     set_col_type = col_dict[set_col_name]
     if not isinstance(set_value, COLUMN_TYPES[set_col_type]):
-        raise TypeError(f"error:Элемент данных {set_value}" +\
+        raise TypeError(f"Элемент данных {set_value}" +\
         f" не соответствует типу столбца {set_col_name}," +\
         f" ожидается {set_col_type}")
     where_col_type = col_dict[where_col_name]
     if not isinstance(where_value, COLUMN_TYPES[where_col_type]):
-        raise TypeError(f"error:Элемент данных {where_value}" +\
+        raise TypeError(f"Элемент данных {where_value}" +\
         f" не соответствует типу столбца {where_col_name}," +\
         f" ожидается {where_col_type}")
   
@@ -201,7 +210,7 @@ def update(table_data: list, table_name: str, set_clause: tuple, where_clause: t
             updated_data.append(row)
         except KeyError:
             raise KeyError(
-            f"error:Столбца {where_col_name} нет в таблице {table_name}")
+            f"Столбца {where_col_name} нет в таблице {table_name}")
         
     return updated_data
     
@@ -226,7 +235,9 @@ def create_table_handler(table_name: str, columns: list):
 
 def drop_table_handler(table_name: str):
     meta = _read_meta("drop_table")
-    drop_table(meta, table_name)
+    meta = drop_table(meta, table_name)
+    if meta is None:
+        return "Удаление не производилось"
     _write_meta("drop_table", meta)
     delete_table(table_name)
     return f"Таблица {table_name} успешно удалена"
@@ -272,6 +283,8 @@ def update_handler(table_name: str, set_clause: tuple, where_clause: tuple):
 def delete_handler(table_name: str, where_clause: tuple):
     table_data = load_table_data(table_name)
     table_data = delete(table_data, table_name, where_clause)
+    if table_data is None:
+        return "Удаление строк не выполнено"
     save_table_data(table_name, table_data)
     
     return f"В таблице {table_name} произведено удаление строк"
