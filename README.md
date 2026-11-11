@@ -116,3 +116,7 @@
 
 `info tab1`
 
+## Запуск демо
+
+`asciinema play demo.cast `
+

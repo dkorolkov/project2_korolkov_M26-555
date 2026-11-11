@@ -58,7 +58,7 @@ def create_table(metadata: dict, table_name: str, columns: list) -> dict:
             break
         else:
             if col_type not in COLUMN_TYPES:
-                raise TypeError(f"{col_type=};{col_name=}")
+                raise TypeError(f"Неизвестный тип {col_type} в столбце {col_name}")
 
     # Удалить столбец id, если есть
     if id_idx is not None:
@@ -68,21 +68,18 @@ def create_table(metadata: dict, table_name: str, columns: list) -> dict:
     columns.insert(0, (ID_COLUNM_NAME, ID_COLUNM_TYPE))
     
     if table_name in metadata[TABLES_IN_META]:
-        raise KeyError(f"{table_name=}")
+        raise KeyError(f"Таблица {table_name=} уже существует")
+        
     table = {
         TABLE_NAME_IN_META: table_name,
         COLUMNS_IN_META: columns,
     }
-
     metadata[TABLES_IN_META][table_name] = table
     
     return metadata
 
-create_table.__wrapped__.exceptions = {
-    TypeError: "Недопустимый тип {col_type} в столбце {col_name}",
-    KeyError: "Таблица {table_name} уже существует"
-}
 
+@handle_db_errors
 @confirm_action("Удаление таблицы")
 def drop_table(metadata: dict, table_name: str) -> dict:
     if table_name in metadata[TABLES_IN_META]:
@@ -94,6 +91,7 @@ def drop_table(metadata: dict, table_name: str) -> dict:
     
 # Работа с данными
 
+@handle_db_errors
 @log_time
 def insert(table_data: list, table_name: str, values: list):
     table_meta = load_meta_for_table(table_name)
@@ -104,7 +102,7 @@ def insert(table_data: list, table_name: str, values: list):
     
     #col_dict = dict(columns)
     for (col_name, col_type), value in zip(columns, values):
-        if not isinstance(value, COLUMN_TYPES[col_type]):
+        if value.__class__.__name__ != col_type:
             raise TypeError(f"Элемент данных {value}" +\
             f" не соответствует типу столбца {col_name}, ожидается {col_type}")
             
@@ -132,9 +130,12 @@ def predicat(val1, cmp_op, val2):
     
     return ops[cmp_op](val1, val2)
     
+@handle_db_errors
 @log_time
 def select(table_data: list, table_name: str, where_clause=None) -> list:
     table_meta = load_meta_for_table(table_name)
+    if table_meta is None:
+        return "Ошибка"
     columns = table_meta[COLUMNS_IN_META]
     if where_clause is None:
         return table_data
@@ -157,6 +158,7 @@ def select(table_data: list, table_name: str, where_clause=None) -> list:
         
     return filtered_data
     
+@handle_db_errors
 @confirm_action("Удаление строк")
 def delete(table_data: list, table_name: str, where_clause: tuple) -> list:
     table_meta = load_meta_for_table(table_name)
@@ -182,6 +184,7 @@ def delete(table_data: list, table_name: str, where_clause: tuple) -> list:
         
     return filtered_data
     
+@handle_db_errors
 @log_time
 def update(table_data: list, table_name: str, set_clause: tuple, where_clause: tuple) -> list:
     table_meta = load_meta_for_table(table_name)
@@ -214,6 +217,7 @@ def update(table_data: list, table_name: str, set_clause: tuple, where_clause: t
         
     return updated_data
     
+@handle_db_errors
 def info(table_data: list, table_name: str) -> dict:
     table_meta = load_meta_for_table(table_name)
     columns = table_meta[COLUMNS_IN_META]
@@ -229,6 +233,8 @@ def info(table_data: list, table_name: str) -> dict:
 def create_table_handler(table_name: str, columns: list):
     meta = _read_meta("create_table")
     meta = create_table(meta, table_name, columns)
+    if meta is None:
+        return "Таблица не создана"
     _write_meta("create_table", meta)
     save_table_data(table_name, [])
     return f"Таблица {table_name} успешно создана"
@@ -244,6 +250,8 @@ def drop_table_handler(table_name: str):
 
 def list_tables_handler():
     meta = _read_meta("list_tables")
+    if meta is None:
+        return ""
 
     if meta[TABLES_IN_META]:
         return "\n".join(meta[TABLES_IN_META])
@@ -252,7 +260,12 @@ def list_tables_handler():
 
 def insert_handler(table_name: str, values: list):
     table_data = load_table_data(table_name)
+    if table_data is None:
+        return "Ошибка"
     table_data = insert(table_data, table_name, values)
+    if table_data is None:
+        return "Ошибка"
+
     save_table_data(table_name, table_data)
     
     return f"Строка в таблицу {table_name} успешно добавлена"
@@ -260,9 +273,17 @@ def insert_handler(table_name: str, values: list):
 
 def select_handler(table_name: str, where_clause: tuple | None = None):
     table_data = load_table_data(table_name)
+    if table_data is None:
+        return "Ошибка"
+ 
     table_data = select(table_data, table_name, where_clause)
+    if table_data is None:
+        return "Ошибка"
  
     table_meta = load_meta_for_table(table_name)
+    if table_meta is None:
+        return "Ошибка"
+ 
     columns = table_meta[COLUMNS_IN_META]
     col_names = next(zip(*columns))
     table = PrettyTable()
@@ -275,13 +296,21 @@ def select_handler(table_name: str, where_clause: tuple | None = None):
 
 def update_handler(table_name: str, set_clause: tuple, where_clause: tuple):
     table_data = load_table_data(table_name)
+    if table_data is None:
+        return "Ошибка"
+ 
     table_data = update(table_data, table_name, set_clause, where_clause)
+    if table_data is None:
+        return "Ошибка"
+
     save_table_data(table_name, table_data)
     
     return f"Таблица {table_name} успешно обновлена"
  
 def delete_handler(table_name: str, where_clause: tuple):
     table_data = load_table_data(table_name)
+    if table_data is None:
+        return "Ошибка"
     table_data = delete(table_data, table_name, where_clause)
     if table_data is None:
         return "Удаление строк не выполнено"
@@ -292,7 +321,11 @@ def delete_handler(table_name: str, where_clause: tuple):
  
 def info_handler(table_name: str):
     table_data = load_table_data(table_name)
+    if table_data is None:
+        return "Ошибка"
     table_info = info(table_data, table_name)
+    if table_info is None:
+        return "Ошибка"
     
     col_info = ", ".join(f"{cname}:{ctype}"
                          for cname, ctype in table_info["columns"])

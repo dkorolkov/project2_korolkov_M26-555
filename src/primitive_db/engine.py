@@ -1,4 +1,4 @@
-import json
+import re
 import shlex
 from collections.abc import Callable
 
@@ -39,14 +39,9 @@ def run():
         if command == 'exit':
             break
 
-        try:
-            #result = handler(**command_data)
-            result = cache_manager(command, command_data, handler)
-            if result is not None:
-                print(result)
-        except (KeyError, TypeError, ValueError, OSError,
-            UnicodeDecodeError, json.JSONDecodeError) as exc:
-            print(f"Ошибка при выполнении команды {command}: {exc!s}")
+        result = cache_manager(command, command_data, handler)
+        if result is not None:
+            print(result)
 
 def print_help():
     """Prints the help message for the current mode."""
@@ -71,7 +66,7 @@ def parse(command_string: str) -> (str, dict, Callable):
     tokens = list(tokens)
     command = tokens[0]
     if command not in command_handlers:
-        raise KeyError(f"error:Неизвестная команда {command}")
+        raise KeyError(f"Неизвестная команда {command}")
 
     parser, handler = command_handlers[command][:2]
     if parser is None:
@@ -81,14 +76,15 @@ def parse(command_string: str) -> (str, dict, Callable):
         return parser(tokens) + (handler,)
     except ValueError as exc:
         raise ValueError(
-        f";error:Неверный формат команды {command}: {exc!s}")
+        f"Неверный формат команды {command}: {exc!s}")
         
 keywords = {"create_table", "drop_table", "list_tables",
             "select", "insert", "update", "delete",
             "from", "where"
             }
+identifier_templare = re.compile(r"[A-Za-z_]\w*", re.ASCII)
 def is_identtifier(word: str) -> bool:
-    return word.isidentifier() and word not in keywords
+    return identifier_templare.fullmatch(word) is not None and word not in keywords
 
 def not_parse(tokens: list) -> dict:
     return tokens[0], {}
@@ -329,8 +325,11 @@ def cache_manager(command, command_data, handler):
                         select_table_closure(table_name, handler)
                )
     elif command in cache_reset_commands:
-        table_name = command_data["table_name"]
-        del cachers[table_name]
+        result = handler(**command_data)
+        if result != "Ошибка":
+            table_name = command_data["table_name"]
+            cachers.pop(table_name, None)
+        return result
 
     return handler(**command_data)
 
